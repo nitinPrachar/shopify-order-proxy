@@ -1,11 +1,19 @@
 // Netlify Function — Shopify Order Lookup Proxy
-// NO secrets in this file — all sensitive values are stored in
-// Netlify Dashboard → Site → Environment Variables
+// Secrets stored in Netlify Environment Variables — nothing hardcoded here
 
 exports.handler = async function(event) {
 
+  // Handle CORS preflight request (OPTIONS)
+  if (event.httpMethod === 'OPTIONS') {
+    return {
+      statusCode: 200,
+      headers: cors(),
+      body: ''
+    };
+  }
+
   if (event.httpMethod !== 'GET') {
-    return { statusCode: 405, body: JSON.stringify({ error: 'Method not allowed' }) };
+    return { statusCode: 405, headers: cors(), body: JSON.stringify({ error: 'Method not allowed' }) };
   }
 
   const orderNum = event.queryStringParameters && event.queryStringParameters.order;
@@ -13,7 +21,6 @@ exports.handler = async function(event) {
     return { statusCode: 400, headers: cors(), body: JSON.stringify({ error: 'Missing order parameter' }) };
   }
 
-  // These come from Netlify Environment Variables — never hardcoded here
   const SHOPIFY_DOMAIN      = process.env.SHOPIFY_DOMAIN;
   const SHOPIFY_ADMIN_TOKEN = process.env.SHOPIFY_ADMIN_TOKEN;
 
@@ -22,7 +29,8 @@ exports.handler = async function(event) {
   }
 
   try {
-    const url = `https://${SHOPIFY_DOMAIN}/admin/api/2024-01/orders.json?name=${encodeURIComponent(orderNum)}&status=any&fields=id,name,fulfillments,line_items`;
+    const cleanOrder = orderNum.replace(/^#/, '');
+    const url = `https://${SHOPIFY_DOMAIN}/admin/api/2024-01/orders.json?name=%23${cleanOrder}&status=any&fields=id,name,fulfillments,line_items`;
 
     const res = await fetch(url, {
       headers: {
@@ -37,7 +45,11 @@ exports.handler = async function(event) {
     const orders = data.orders;
 
     if (!orders || orders.length === 0) {
-      return { statusCode: 404, headers: cors(), body: JSON.stringify({ error: 'Order not found. Please check your order number.' }) };
+      return {
+        statusCode: 404,
+        headers: cors(),
+        body: JSON.stringify({ error: 'Order not found. Please check your order number.' })
+      };
     }
 
     const order = orders[0];
@@ -62,14 +74,19 @@ exports.handler = async function(event) {
     };
 
   } catch (err) {
-    return { statusCode: 500, headers: cors(), body: JSON.stringify({ error: err.message || 'Server error' }) };
+    return {
+      statusCode: 500,
+      headers: cors(),
+      body: JSON.stringify({ error: err.message || 'Server error. Please try again.' })
+    };
   }
 };
 
 function cors() {
   return {
     'Access-Control-Allow-Origin':  '*',
-    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Methods': 'GET, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Accept',
     'Content-Type':                 'application/json'
   };
 }
